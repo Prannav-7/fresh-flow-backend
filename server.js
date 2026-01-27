@@ -16,6 +16,43 @@ import { updateDocument, deleteDocument } from './firebaseOperations.js';
 // SPECIFIC ORDER ROUTES (must come before /api/data/:collection)
 // ============================================
 
+// Track order by ID
+app.get('/api/orders/track/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        console.log('========== ORDER TRACKING REQUEST ==========');
+        console.log('Tracking Order ID:', id);
+
+        const { doc: docFunc, getDoc } = await import('firebase/firestore');
+        const orderRef = docFunc(db, 'orders', id);
+        const orderSnapshot = await getDoc(orderRef);
+
+        if (!orderSnapshot.exists()) {
+            console.log('Order not found');
+            return res.status(404).json({
+                success: false,
+                error: 'Order not found. Please check your order ID and try again.'
+            });
+        }
+
+        const orderData = orderSnapshot.data();
+        console.log('Order found:', orderData);
+        console.log('==========================================');
+
+        res.json({
+            success: true,
+            order: {
+                ...orderData,
+                docId: orderSnapshot.id
+            }
+        });
+    } catch (error) {
+        console.error('Error tracking order:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Update order (including status)
 app.put('/api/orders/:id', async (req, res) => {
     try {
