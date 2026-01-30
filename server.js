@@ -79,6 +79,113 @@ app.put('/api/orders/:id', async (req, res) => {
     }
 });
 
+// Cancel Order Route (with stock restoration)
+app.post('/api/orders/:id/cancel', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { getDoc, doc: docFunc, updateDoc, query, collection: firestoreCollection, where, getDocs } = await import('firebase/firestore');
+
+        console.log('========== ORDER CANCELLATION REQUEST ==========');
+        console.log('Order ID:', id);
+
+        // 1. Get the order details
+        const orderRef = docFunc(db, 'orders', id);
+        const orderSnapshot = await getDoc(orderRef);
+
+        if (!orderSnapshot.exists()) {
+            return res.status(404).json({ success: false, error: 'Order not found' });
+        }
+
+        const orderData = orderSnapshot.data();
+
+        // Check if order can be cancelled
+        if (orderData.status === 'Delivered' || orderData.status === 'Cancelled') {
+            return res.status(400).json({
+                success: false,
+                error: `Order cannot be cancelled because it is already ${orderData.status}`
+            });
+        }
+
+        // 2. Update order status to 'Cancelled'
+        await updateDoc(orderRef, {
+            status: 'Cancelled',
+            cancelledAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        });
+
+        // 3. Restore stock for each item
+        if (orderData.items && orderData.items.length > 0) {
+            for (const item of orderData.items) {
+                // Query products by numeric id field
+                const productsQuery = query(
+                    firestoreCollection(db, 'products'),
+                    where('id', '==', parseInt(item.id))
+                );
+
+                const querySnapshot = await getDocs(productsQuery);
+
+                if (!querySnapshot.empty) {
+                    const productDoc = querySnapshot.docs[0];
+                    const productData = productDoc.data();
+                    const currentStock = productData.available || 0;
+
+                    // Get product unit
+                    let productUnit = productData.unit;
+                    if (!productUnit) {
+                        const category = (productData.category || '').toLowerCase();
+                        productUnit = category.includes('oil') ? 'L' : 'kg';
+                    }
+
+                    // Calculate quantity to restore (same logic as reduce-stock but adding)
+                    let quantityToRestore = item.quantity;
+
+                    if (item.size) {
+                        const sizeMatch = item.size.match(/^([\d.]+)\s*(kg|gm|g|l|ml)$/i);
+                        if (sizeMatch) {
+                            const sizeValue = parseFloat(sizeMatch[1]);
+                            const sizeUnit = sizeMatch[2].toLowerCase();
+                            const productUnitLower = productUnit.toLowerCase();
+
+                            if (productUnitLower === 'kg') {
+                                if (sizeUnit === 'gm' || sizeUnit === 'g') quantityToRestore = item.quantity * (sizeValue / 1000);
+                                else if (sizeUnit === 'kg') quantityToRestore = item.quantity * sizeValue;
+                            } else if (productUnitLower === 'gm' || productUnitLower === 'g') {
+                                if (sizeUnit === 'kg') quantityToRestore = item.quantity * (sizeValue * 1000);
+                                else if (sizeUnit === 'gm' || sizeUnit === 'g') quantityToRestore = item.quantity * sizeValue;
+                            } else if (productUnitLower === 'l') {
+                                if (sizeUnit === 'ml') quantityToRestore = item.quantity * (sizeValue / 1000);
+                                else if (sizeUnit === 'l') quantityToRestore = item.quantity * sizeValue;
+                            } else if (productUnitLower === 'ml') {
+                                if (sizeUnit === 'l') quantityToRestore = item.quantity * (sizeValue * 1000);
+                                else if (sizeUnit === 'ml') quantityToRestore = item.quantity * sizeValue;
+                            }
+                        }
+                    }
+
+                    const newStock = currentStock + quantityToRestore;
+                    const productRef = docFunc(db, 'products', productDoc.id);
+
+                    await updateDoc(productRef, {
+                        available: newStock,
+                        inStock: newStock > 0,
+                        updatedAt: new Date().toISOString()
+                    });
+
+                    console.log(`Restored stock for ${productData.name}: ${currentStock} -> ${newStock}`);
+                }
+            }
+        }
+
+        console.log('Order cancelled and stock restored successfully');
+        console.log('==========================================');
+
+        res.json({ success: true, message: 'Order cancelled successfully' });
+    } catch (error) {
+        console.error('Error cancelling order:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Test route
 app.get('/', (req, res) => {
     res.json({ message: 'Backend server is running with Firebase!' });
