@@ -20,6 +20,7 @@ const products = [
         description: "Cold-pressed gingelly oil, rich in nutrients and antioxidants. Multiple sizes available.",
         inStock: true,
         available: 54,
+        unit: 'L',
         discount: 12,
         brand: "Valari",
         sizes: ["250ml", "500ml", "1L"]
@@ -36,6 +37,7 @@ const products = [
         description: "Premium quality Seeraga Samba rice, aromatic and perfect for biryani.",
         inStock: true,
         available: 46,
+        unit: 'kg',
         discount: 13,
         brand: "Valari",
         sizes: ["1kg", "5kg", "10kg"]
@@ -51,7 +53,8 @@ const products = [
         image: "/assets/images/samba.jpg",
         description: "Traditional Sivan Samba rice variety, nutritious and tasty.",
         inStock: true,
-        available: 199,
+        available: 44,
+        unit: 'kg',
         discount: 17,
         brand: "Valari",
         sizes: ["1kg", "5kg", "10kg"]
@@ -68,6 +71,7 @@ const products = [
         description: "Natural palm jaggery, healthy alternative to sugar.",
         inStock: true,
         available: 140,
+        unit: 'kg',
         discount: 20,
         brand: "Valari",
         sizes: ["250g", "500g", "1kg"]
@@ -84,6 +88,7 @@ const products = [
         description: "Pure cold-pressed coconut oil for cooking and hair care.",
         inStock: true,
         available: 104,
+        unit: 'L',
         discount: 11,
         brand: "Valari",
         sizes: ["250ml", "500ml", "1L"]
@@ -100,6 +105,7 @@ const products = [
         description: "Pure organic turmeric powder, anti-inflammatory and antiseptic.",
         inStock: true,
         available: 103,
+        unit: 'kg',
         discount: 17,
         brand: "Valari",
         sizes: ["100g", "250g", "500g"]
@@ -116,6 +122,7 @@ const products = [
         description: "Traditional red rice variety, boosts stamina and strength.",
         inStock: true,
         available: 248,
+        unit: 'kg',
         discount: 14,
         brand: "Valari",
         sizes: ["1kg", "5kg", "10kg"]
@@ -131,7 +138,8 @@ const products = [
         image: "/assets/images/shikakai.jpg",
         description: "Natural shikakai powder for healthy hair growth and care.",
         inStock: true,
-        available: 203,
+        available: 198.5,
+        unit: 'kg',
         discount: 17,
         brand: "Valari",
         sizes: ["100g", "250g", "500g"]
@@ -147,7 +155,8 @@ const products = [
         image: "assets/images/groundnut.jpg",
         description: "Cold-pressed groundnut oil, ideal for all types of cooking.",
         inStock: true,
-        available: 87,
+        available: 73.5,
+        unit: 'L',
         discount: 10,
         brand: "Valari",
         sizes: ["500ml", "1L", "2L"]
@@ -163,7 +172,8 @@ const products = [
         image: "/assets/images/kolu.jpg",
         description: "Nutritious horse gram, excellent for weight loss and health.",
         inStock: true,
-        available: 156,
+        available: 155.5,
+        unit: 'kg',
         discount: 18,
         brand: "Valari",
         sizes: ["500g", "1kg"]
@@ -180,6 +190,7 @@ const products = [
         description: "Nutritious pearl millet, high in iron and calcium.",
         inStock: true,
         available: 234,
+        unit: 'kg',
         discount: 19,
         brand: "Valari",
         sizes: ["500g", "1kg", "5kg"]
@@ -196,6 +207,7 @@ const products = [
         description: "Traditional country jaggery, natural and healthy sweetener.",
         inStock: true,
         available: 167,
+        unit: 'kg',
         discount: 18,
         brand: "Valari",
         sizes: ["250g", "500g", "1kg"]
@@ -226,8 +238,16 @@ async function uploadProducts() {
                 console.log(`✅ Uploaded product ${product.id}: ${product.name}`);
                 uploaded++;
             } else {
-                console.log(`⏭️  Product ${product.id} already exists, skipping`);
-                skipped++;
+                // Update existing product to ensure stock levels are synced
+                const docId = querySnapshot.docs[0].id;
+                const { updateDoc, doc: firestoreDoc } = await import('firebase/firestore');
+                await updateDoc(firestoreDoc(db, 'products', docId), {
+                    available: product.available,
+                    unit: product.unit,
+                    updatedAt: new Date().toISOString()
+                });
+                console.log(`🆙 Updated product ${product.id}: ${product.name} with ${product.available} ${product.unit}`);
+                updated++;
             }
         } catch (error) {
             console.error(`❌ Error uploading product ${product.id}:`, error.message);
