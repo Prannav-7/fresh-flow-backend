@@ -689,7 +689,7 @@ app.post('/api/upload/image', upload.single('image'), async (req, res) => {
 // Add a review (with purchase verification)
 app.post('/api/reviews', async (req, res) => {
     try {
-        const { productId, userId, userName, rating, comment } = req.body;
+        const { productId, userId, userName, rating, comment, image } = req.body;
 
         // Verify user has purchased this product
         const { getDocs, collection: firestoreCollection, query, where, addDoc, doc: docFunc, getDoc, updateDoc } = await import('firebase/firestore');
@@ -749,6 +749,7 @@ app.post('/api/reviews', async (req, res) => {
             userName,
             rating: Number(rating),
             comment,
+            image: image || null,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
         };
@@ -911,6 +912,53 @@ app.get('/api/reviews/can-review/:productId/:userId', async (req, res) => {
         res.json({ success: true, canReview: true });
     } catch (error) {
         console.error('Error checking review eligibility:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Sync all product review counts with actual reviews in the database
+app.post('/api/admin/sync-review-counts', async (req, res) => {
+    try {
+        const { getDocs, collection: firestoreCollection, query, updateDoc, doc: docFunc } = await import('firebase/firestore');
+
+        const productsSnapshot = await getDocs(firestoreCollection(db, 'products'));
+        const allReviewsSnapshot = await getDocs(firestoreCollection(db, 'reviews'));
+
+        const reviewsByProduct = {};
+        allReviewsSnapshot.forEach(doc => {
+            const data = doc.data();
+            const pid = String(data.productId);
+            if (!reviewsByProduct[pid]) reviewsByProduct[pid] = [];
+            reviewsByProduct[pid].push(data);
+        });
+
+        let updatedCount = 0;
+        for (const productDoc of productsSnapshot.docs) {
+            const productData = productDoc.data();
+            const productId = String(productData.id);
+            const productReviews = reviewsByProduct[productId] || [];
+
+            const newReviewCount = productReviews.length;
+            const newRating = newReviewCount > 0
+                ? productReviews.reduce((sum, r) => sum + Number(r.rating), 0) / newReviewCount
+                : 0;
+
+            const productRef = docFunc(db, 'products', productDoc.id);
+            await updateDoc(productRef, {
+                reviews: newReviewCount,
+                rating: parseFloat(newRating.toFixed(1)),
+                updatedAt: new Date().toISOString()
+            });
+            updatedCount++;
+        }
+
+        res.json({
+            success: true,
+            message: `Synchronized review counts for ${updatedCount} products`,
+            details: reviewsByProduct
+        });
+    } catch (error) {
+        console.error('Error syncing review counts:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
