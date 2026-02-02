@@ -437,6 +437,58 @@ app.post('/api/auth/change-password', async (req, res) => {
     }
 });
 
+// Admin Promotion Route - Set role to admin for an email
+app.post('/api/auth/promote-admin', async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ success: false, error: 'Email is required' });
+
+        const { query, collection: firestoreCollection, where, getDocs, updateDoc, doc: docFunc } = await import('firebase/firestore');
+        const q = query(firestoreCollection(db, 'users'), where('email', '==', email));
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) {
+            return res.status(404).json({ success: false, error: 'User not found in Firestore. Please login once first.' });
+        }
+
+        const userDoc = snapshot.docs[0];
+        await updateDoc(docFunc(db, 'users', userDoc.id), {
+            role: 'admin',
+            updatedAt: new Date().toISOString()
+        });
+
+        res.json({ success: true, message: `User ${email} promoted to Admin successfully.` });
+    } catch (error) {
+        console.error('Promotion error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Purge User Route - Delete user from Firestore (to fix "past history" issues)
+app.post('/api/auth/purge-user', async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ success: false, error: 'Email is required' });
+
+        const { query, collection: firestoreCollection, where, getDocs, deleteDoc, doc: docFunc } = await import('firebase/firestore');
+        const q = query(firestoreCollection(db, 'users'), where('email', '==', email));
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) {
+            return res.status(404).json({ success: false, error: 'User not found in Firestore.' });
+        }
+
+        const deletePromises = snapshot.docs.map(doc => deleteDoc(docFunc(db, 'users', doc.id)));
+        await Promise.all(deletePromises);
+
+        res.json({ success: true, message: `User ${email} removed from Firestore. They can now register fresh.` });
+    } catch (error) {
+        console.error('Purge error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
 // ============================================
 // PRODUCT MANAGEMENT ROUTES
 // ============================================
