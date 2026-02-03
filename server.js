@@ -11,6 +11,8 @@ app.use(express.json({ limit: '50mb' })); // Increased limit for base64 images
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 import { updateDocument, deleteDocument } from './firebaseOperations.js';
+import { sendOrderConfirmationEmail } from './emailService.js';
+
 
 // ============================================
 // SPECIFIC ORDER ROUTES (must come before /api/data/:collection)
@@ -268,6 +270,50 @@ app.post('/api/data/:collection', async (req, res) => {
         });
     } catch (error) {
         console.error('Error adding document:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// EMAIL NOTIFICATION ROUTES
+// ============================================
+
+// Send order confirmation email
+app.post('/api/email/order-confirmation', async (req, res) => {
+    try {
+        const orderDetails = req.body;
+
+        console.log('========== EMAIL NOTIFICATION REQUEST ==========');
+        console.log('Sending order confirmation to:', orderDetails.customerEmail);
+
+        // Validate required fields
+        if (!orderDetails.customerEmail || !orderDetails.orderId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Customer email and order ID are required'
+            });
+        }
+
+        // Send email
+        const result = await sendOrderConfirmationEmail(orderDetails);
+
+        console.log('Email Result:', result);
+        console.log('================================================');
+
+        if (result.success) {
+            res.json({
+                success: true,
+                message: 'Order confirmation email sent successfully',
+                messageId: result.messageId
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                error: result.error || 'Failed to send email'
+            });
+        }
+    } catch (error) {
+        console.error('Error sending email:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
