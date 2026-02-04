@@ -11,7 +11,8 @@ app.use(express.json({ limit: '50mb' })); // Increased limit for base64 images
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 import { updateDocument, deleteDocument } from './firebaseOperations.js';
-import { sendOrderConfirmationEmail } from './emailService.js';
+import { sendOrderConfirmationEmail, sendLowStockAlert } from './emailService.js';
+import { sendLowStockWhatsApp } from './whatsappService.js';
 
 
 // ============================================
@@ -221,6 +222,66 @@ app.get('/', (req, res) => {
 // Health check endpoint for mobile testing
 app.get('/health', (req, res) => {
     res.json({ status: 'Backend working 🚀' });
+});
+
+/**
+ * Helper to check stock and notify if low
+ */
+const checkAndNotifyLowStock = async (productData, updatedStock, unit, size = 'N/A') => {
+    const LOW_STOCK_THRESHOLD = 5;
+    const currentStockValue = Number(updatedStock);
+
+    console.log(`Inventory Check: ${productData.name} - Stock: ${currentStockValue} (Threshold: ${LOW_STOCK_THRESHOLD})`);
+
+    if (currentStockValue <= LOW_STOCK_THRESHOLD) {
+        console.log(`⚠️ TRIGGERING LOW STOCK ALERT: ${productData.name}`);
+
+        const alertData = {
+            name: productData.name,
+            stock: currentStockValue,
+            unit: unit || 'units',
+            size: size
+        };
+
+        // Send notifications independently using Promise.allSettled
+        // This ensures if WhatsApp fails (e.g. invalid token), Email still sends, and vice versa.
+        const results = await Promise.allSettled([
+            sendLowStockAlert(alertData),
+            sendLowStockWhatsApp(alertData)
+        ]);
+
+        results.forEach((result, index) => {
+            const type = index === 0 ? 'Email' : 'WhatsApp';
+            if (result.status === 'fulfilled') {
+                console.log(`✅ ${type} Alert Sent:`, result.value);
+            } else {
+                console.error(`❌ ${type} Alert Failed:`, result.reason);
+            }
+        });
+
+        return true;
+    }
+    return false;
+};
+
+// Test Alert Endpoint
+app.get('/api/test-alert', async (req, res) => {
+    try {
+        console.log('--- TRIGGERING TEST ALERT ---');
+        const testData = {
+            name: 'TEST PRODUCT (FreshFlow)',
+            stock: 2,
+            unit: 'kg',
+            size: '500g'
+        };
+
+        await sendLowStockAlert(testData);
+        await sendLowStockWhatsApp(testData);
+
+        res.json({ success: true, message: 'Test notifications sent! Check your email and terminal.' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 // ============================================
@@ -562,6 +623,18 @@ app.put('/api/products/:id', async (req, res) => {
         console.log('===========================================');
 
         if (result.success) {
+            // Check for low stock after manual update
+            if (updateData.available !== undefined) {
+                const product = await getDocumentById('products', id);
+                if (product.success) {
+                    await checkAndNotifyLowStock(
+                        product.data,
+                        updateData.available,
+                        product.data.unit,
+                        'Manual Update'
+                    );
+                }
+            }
             res.json({ success: true, message: 'Product updated successfully' });
         } else {
             res.status(500).json({ success: false, error: result.error });
@@ -696,6 +769,9 @@ app.post('/api/products/reduce-stock', async (req, res) => {
                 });
 
                 console.log(`✅ Success: Reduced ${productData.name} from ${currentStock} to ${newStock} (${productUnit})`);
+
+                // Use the helper to check and notify
+                await checkAndNotifyLowStock(productData, newStock, productUnit, item.size);
             } else {
                 console.warn(`❌ Failed: Product ID ${item.id} not found by any method`);
             }

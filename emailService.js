@@ -7,8 +7,8 @@ dotenv.config();
 const createTransporter = () => {
     return nodemailer.createTransport({
         host: 'smtp.gmail.com',
-        port: 587,
-        secure: false, // true for 465, false for other ports
+        port: 465,
+        secure: true, // true for 465, false for other ports
         auth: {
             user: process.env.EMAIL_USER,
             pass: process.env.EMAIL_PASSWORD
@@ -252,6 +252,60 @@ This is an automated email. Please do not reply to this message.
             success: false,
             error: error.message
         };
+    }
+};
+
+/**
+ * Send low stock alert email to admin
+ * @param {Object} product - Product details including name, current stock, and threshold
+ */
+export const sendLowStockAlert = async (product) => {
+    try {
+        const transporter = createTransporter();
+        const adminEmail = 'info.iyarkaivalari@gmail.com';
+
+        const mailOptions = {
+            from: {
+                name: 'FreshFlow Inventory',
+                address: process.env.EMAIL_USER
+            },
+            to: adminEmail,
+            subject: `⚠️ LOW STOCK ALERT: ${product.name}`,
+            html: `
+                <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
+                    <h2 style="color: #e11d48;">⚠️ Low Stock Warning</h2>
+                    <p>The product <strong>${product.name}</strong> has reached a low stock level:</p>
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+                        <tr style="background-color: #f9fafb;">
+                            <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Product Name</th>
+                            <td style="padding: 10px; border: 1px solid #ddd;">${product.name}</td>
+                        </tr>
+                        <tr>
+                            <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Current Stock</th>
+                            <td style="padding: 10px; border: 1px solid #ddd; color: #e11d48; font-weight: bold;">
+                                ${product.stock} ${product.unit || 'units'}
+                            </td>
+                        </tr>
+                        <tr style="background-color: #f9fafb;">
+                            <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Size/Variant</th>
+                            <td style="padding: 10px; border: 1px solid #ddd;">${product.size || 'N/A'}</td>
+                        </tr>
+                    </table>
+                    <p style="margin-top: 20px;">Please login to the admin panel to restock this item.</p>
+                    <a href="https://fresh-flow-fa56.onrender.com/admin/inventory" 
+                       style="display: inline-block; padding: 10px 20px; background-color: #22c55e; color: white; text-decoration: none; border-radius: 5px;">
+                       Manage Inventory
+                    </a>
+                </div>
+            `
+        };
+
+        const info = await transporter.sendMail(mailOptions);
+        console.log('✅ Low stock email alert sent:', info.messageId);
+        return { success: true };
+    } catch (error) {
+        console.error('❌ Error sending low stock email:', error);
+        return { success: false, error: error.message };
     }
 };
 
