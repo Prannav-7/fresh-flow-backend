@@ -9,24 +9,123 @@ import {
 import { doc, setDoc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 
 /**
+ * Validation helper functions
+ */
+const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email) {
+        return 'Email is required';
+    }
+    if (!emailRegex.test(email)) {
+        return 'Please enter a valid email address';
+    }
+    return null;
+};
+
+const validatePassword = (password) => {
+    if (!password) {
+        return 'Password is required';
+    }
+    if (password.length < 6) {
+        return 'Password must be at least 6 characters long';
+    }
+    if (!/[A-Z]/.test(password)) {
+        return 'Password must contain at least one uppercase letter';
+    }
+    if (!/[a-z]/.test(password)) {
+        return 'Password must contain at least one lowercase letter';
+    }
+    if (!/[0-9]/.test(password)) {
+        return 'Password must contain at least one number';
+    }
+    return null;
+};
+
+const validateDisplayName = (name) => {
+    if (!name) {
+        return 'Display name is required';
+    }
+    if (name.trim().length < 2) {
+        return 'Display name must be at least 2 characters long';
+    }
+    if (name.trim().length > 50) {
+        return 'Display name must not exceed 50 characters';
+    }
+    // Allow letters, spaces, and basic punctuation like . - '
+    if (!/^[a-zA-Z\s.'-]+$/.test(name)) {
+        return 'Display name can only contain letters, spaces, periods, hyphens, and apostrophes';
+    }
+    return null;
+};
+
+/**
  * Sign Up - Create new user account
  */
 export async function signUp(email, password, displayName) {
     try {
+        console.log(`Signup attempt: ${email}, ${displayName}`);
+
+        // Validate inputs
+        const emailError = validateEmail(email);
+        if (emailError) {
+            console.warn(`Signup validation failed (email): ${emailError}`);
+            return {
+                success: false,
+                error: emailError,
+                code: 'validation/invalid-email'
+            };
+        }
+
+        const passwordError = validatePassword(password);
+        if (passwordError) {
+            console.warn(`Signup validation failed (password): ${passwordError}`);
+            return {
+                success: false,
+                error: passwordError,
+                code: 'validation/weak-password'
+            };
+        }
+
+        const nameError = validateDisplayName(displayName);
+        if (nameError) {
+            console.warn(`Signup validation failed (name): ${nameError}`);
+            return {
+                success: false,
+                error: nameError,
+                code: 'validation/invalid-name'
+            };
+        }
+
         // Create user in Firebase Auth
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        let userCredential;
+        try {
+            userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        } catch (fbError) {
+            console.error(`Firebase Auth Signup Error [${fbError.code}]: ${fbError.message}`);
+            return {
+                success: false,
+                error: fbError.message,
+                code: fbError.code
+            };
+        }
+
         const user = userCredential.user;
 
         // Update display name
         if (displayName) {
-            await updateProfile(user, { displayName });
+            try {
+                await updateProfile(user, { displayName: displayName.trim() });
+            } catch (pError) {
+                console.warn(`Profile update failed: ${pError.message}`);
+                // Don't fail the whole signup if just profile update fails
+            }
         }
 
         // Store user data in Firestore
         await setDoc(doc(db, 'users', user.uid), {
             uid: user.uid,
             email: user.email,
-            displayName: displayName || '',
+            displayName: displayName.trim() || '',
             role: 'user', // default role
             createdAt: serverTimestamp(),
             lastLogin: serverTimestamp(),
@@ -39,7 +138,7 @@ export async function signUp(email, password, displayName) {
             user: {
                 uid: user.uid,
                 email: user.email,
-                displayName: displayName || '',
+                displayName: displayName.trim() || '',
                 role: 'user'
             }
         };
@@ -58,8 +157,41 @@ export async function signUp(email, password, displayName) {
  */
 export async function signIn(email, password) {
     try {
+        console.log(`Signin attempt: ${email}`);
+
+        // Validate inputs
+        const emailError = validateEmail(email);
+        if (emailError) {
+            console.warn(`Signin validation failed (email): ${emailError}`);
+            return {
+                success: false,
+                error: emailError,
+                code: 'validation/invalid-email'
+            };
+        }
+
+        if (!password) {
+            console.warn(`Signin validation failed: password required`);
+            return {
+                success: false,
+                error: 'Password is required',
+                code: 'validation/password-required'
+            };
+        }
+
         // Sign in with Firebase Auth
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        let userCredential;
+        try {
+            userCredential = await signInWithEmailAndPassword(auth, email, password);
+        } catch (fbError) {
+            console.error(`Firebase Auth Signin Error [${fbError.code}]: ${fbError.message}`);
+            return {
+                success: false,
+                error: fbError.message,
+                code: fbError.code
+            };
+        }
+
         const user = userCredential.user;
 
         // Get user data from Firestore

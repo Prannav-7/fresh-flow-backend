@@ -388,6 +388,8 @@ import { signUp, signIn, googleSignIn, signOutUser, getUserData, updateUserProfi
 // Sign Up - Create new user
 app.post('/api/auth/signup', async (req, res) => {
     try {
+        console.log('--- INCOMING SIGNUP REQUEST ---');
+        console.log('Body:', JSON.stringify(req.body, null, 2));
         const { email, password, displayName } = req.body;
 
         if (!email || !password) {
