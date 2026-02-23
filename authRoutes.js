@@ -101,12 +101,41 @@ export async function signUp(email, password, displayName) {
         try {
             userCredential = await createUserWithEmailAndPassword(auth, email, password);
         } catch (fbError) {
-            console.error(`Firebase Auth Signup Error [${fbError.code}]: ${fbError.message}`);
-            return {
-                success: false,
-                error: fbError.message,
-                code: fbError.code
-            };
+            // Handle "Email Already In Use" specifically for "Deleted DB User" scenario
+            if (fbError.code === 'auth/email-already-in-use') {
+                console.log(`User ${email} already in Auth. Checking if DB record exists...`);
+                try {
+                    // Try to sign in to verify password ownership
+                    const pendingCredential = await signInWithEmailAndPassword(auth, email, password);
+                    const pendingUser = pendingCredential.user;
+
+                    // Check if Firestore record exists
+                    const docCheck = await getDoc(doc(db, 'users', pendingUser.uid));
+
+                    if (!docCheck.exists()) {
+                        console.log(`User ${email} exists in Auth but MISSING in DB. Recovering account...`);
+                        userCredential = pendingCredential; // Use this credential to proceed with DB creation
+                        // Continue to creation logic below...
+                    } else {
+                        // User exists in BOTH Auth and DB -> Real duplicate
+                        throw fbError;
+                    }
+                } catch (recoveryError) {
+                    console.warn(`Recovery failed: ${recoveryError.code}`);
+
+                    if (recoveryError.code === 'auth/wrong-password' || recoveryError.code === 'auth/invalid-credential') {
+                        return {
+                            success: false,
+                            error: 'This email is already registered. Please Login with your existing password (or Google) to restore your account.',
+                            code: 'auth/account-exists-restore-required'
+                        };
+                    }
+
+                    throw fbError;
+                }
+            } else {
+                throw fbError;
+            }
         }
 
         const user = userCredential.user;
@@ -126,7 +155,7 @@ export async function signUp(email, password, displayName) {
             uid: user.uid,
             email: user.email,
             displayName: displayName.trim() || '',
-            role: 'user', // default role
+            role: user.email === 'prannavp803@gmail.com' ? 'admin' : 'user', // Auto-admin for specific email
             createdAt: serverTimestamp(),
             lastLogin: serverTimestamp(),
             isActive: true
@@ -214,7 +243,9 @@ export async function signIn(email, password) {
                 lastLogin: serverTimestamp()
             }, { merge: true });
         } else {
-            // Create user document if it doesn't exist
+            console.log(`User ${email} authenticated but no Firestore record found. Recreating account...`);
+
+            // Create user document if it doesn't exist (Re-create deleted user)
             await setDoc(userDocRef, {
                 uid: user.uid,
                 email: user.email,

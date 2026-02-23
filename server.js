@@ -546,6 +546,7 @@ app.post('/api/auth/change-password', async (req, res) => {
     }
 });
 
+
 // Admin Promotion Route - Set role to admin for an email
 app.post('/api/auth/promote-admin', async (req, res) => {
     try {
