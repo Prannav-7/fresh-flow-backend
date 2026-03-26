@@ -1,9 +1,17 @@
 import express from 'express';
 import cors from 'cors';
+import crypto from 'crypto';
+import Razorpay from 'razorpay';
 import { db, auth, storage } from './firebaseConfig.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Initialize Razorpay
+const razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
 
 // Middleware
 app.use(cors());
@@ -1136,6 +1144,67 @@ app.post('/api/admin/sync-review-counts', async (req, res) => {
         });
     } catch (error) {
         console.error('Error syncing review counts:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// RAZORPAY PAYMENT ROUTES
+// ============================================
+
+// Create Razorpay Order
+app.post('/api/payment/create-order', async (req, res) => {
+    try {
+        const { amount, currency = 'INR', receipt } = req.body;
+
+        if (!amount) {
+            return res.status(400).json({ success: false, error: 'Amount is required' });
+        }
+
+        const options = {
+            amount: Math.round(amount * 100), // Razorpay expects amount in paise (e.g., 50.00 INR = 5000 paise)
+            currency,
+            receipt: receipt || `receipt_${Date.now()}`,
+        };
+
+        console.log('--- Creating Razorpay Order ---');
+        console.log('Options:', options);
+
+        const order = await razorpay.orders.create(options);
+
+        console.log('Order Created:', order);
+        res.json({
+            success: true,
+            orderId: order.id,
+            amount: order.amount,
+            currency: order.currency
+        });
+    } catch (error) {
+        console.error('Razorpay Create Order Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Verify Razorpay Signature
+app.post('/api/payment/verify-payment', async (req, res) => {
+    try {
+        const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+        const sign = razorpay_order_id + "|" + razorpay_payment_id;
+        const expectedSign = crypto
+            .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+            .update(sign.toString())
+            .digest("hex");
+
+        if (razorpay_signature === expectedSign) {
+            console.log('✅ Payment Verified Successfully');
+            return res.json({ success: true, message: "Payment verified successfully" });
+        } else {
+            console.error('❌ Payment Verification Failed');
+            return res.status(400).json({ success: false, error: "Invalid signature" });
+        }
+    } catch (error) {
+        console.error('Razorpay Verification Error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
